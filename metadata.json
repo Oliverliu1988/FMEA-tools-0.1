@@ -1,0 +1,5 @@
+{
+  "name": "AIAG-VDA FMEA Master",
+  "description": "A comprehensive 7-Step FMEA (DFMEA, PFMEA, MSR) management tool powered by Gemini AI. compliant with VDA-AIAG standards.",
+  "requestFramePermissions": []
+}
