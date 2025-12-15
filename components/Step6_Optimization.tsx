@@ -8,8 +8,16 @@ interface Props {
   updateStructure: (nodes: StructureNode[]) => void;
 }
 
+/**
+ * Step 6: Optimization
+ * Allows users to define "Actions" to reduce risk (S/O/D) for high-risk causes.
+ */
 const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => {
 
+  /**
+   * Adds a new empty action to a specific cause.
+   * Traverses deep tree to find the specific Cause ID and pushes to its `actions` array.
+   */
   const addAction = (nodeId: string, funcId: string, failId: string, causeId: string) => {
        const updateRecursive = (nodes: StructureNode[]): StructureNode[] => {
             return nodes.map(node => {
@@ -29,6 +37,7 @@ const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => 
                                                  status: "Open",
                                                  takenAction: "",
                                                  completionDate: "",
+                                                 // Initialize new scores with current scores
                                                  newSeverity: c.severity,
                                                  newOccurrence: c.occurrence,
                                                  newDetection: c.detection,
@@ -54,6 +63,45 @@ const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => 
        updateStructure(updateRecursive(structure));
   };
 
+  /**
+   * Deletes a specific action from a cause.
+   */
+  const deleteAction = (nodeId: string, funcId: string, failId: string, causeId: string, actionId: string) => {
+      if(!confirm("Delete this action?")) return;
+
+      const updateRecursive = (nodes: StructureNode[]): StructureNode[] => {
+            return nodes.map(node => {
+                if(node.id === nodeId) {
+                    return {
+                        ...node,
+                        functions: node.functions.map(f => {
+                            if(f.id !== funcId) return f;
+                            return {
+                                ...f,
+                                failures: f.failures.map(fail => {
+                                    if(fail.id !== failId) return fail;
+                                    return {
+                                        ...fail,
+                                        failureCauses: fail.failureCauses.map(c => {
+                                            if(c.id !== causeId) return c;
+                                            return {
+                                                ...c,
+                                                actions: c.actions.filter(a => a.id !== actionId)
+                                            };
+                                        })
+                                    };
+                                })
+                            };
+                        })
+                    };
+                }
+                return { ...node, children: updateRecursive(node.children) };
+            });
+       };
+       updateStructure(updateRecursive(structure));
+  };
+
+  // Updates a field within an action (Description, Dates, Scores)
   const updateAction = (nodeId: string, funcId: string, failId: string, causeId: string, actionId: string, field: keyof FmeaAction, value: any) => {
       const updateRecursive = (nodes: StructureNode[]): StructureNode[] => {
             return nodes.map(node => {
@@ -75,7 +123,7 @@ const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => 
                                                 actions: c.actions.map(a => {
                                                     if(a.id !== actionId) return a;
                                                     const updated = { ...a, [field]: value };
-                                                    // Recalc AP if scores changed
+                                                    // Recalculate AP if any of the scores change
                                                     if(['newSeverity', 'newOccurrence', 'newDetection'].includes(field)) {
                                                         updated.newActionPriority = calculateAP(updated.newSeverity, updated.newOccurrence, updated.newDetection);
                                                     }
@@ -102,12 +150,12 @@ const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => 
             node.functions.forEach(func => {
                 func.failures.forEach(fail => {
                     fail.failureCauses.forEach(cause => {
-                        // Only show High/Medium risk items or items with actions
+                        // Only show High/Medium risk items or items with existing actions
                         if (cause.actionPriority === ActionPriority.LOW && cause.actions.length === 0) return;
 
                         rows.push(
                             <div key={cause.id} className="mb-6 border border-slate-200 rounded-lg overflow-hidden shadow-sm bg-white">
-                                {/* Header Info */}
+                                {/* Header Info: Current Risk Context */}
                                 <div className="bg-slate-50 p-3 border-b border-slate-200 flex justify-between items-center text-sm">
                                     <div className="flex gap-4">
                                         <span className="font-semibold text-slate-700">Failure: <span className="font-normal text-slate-600">{fail.failureMode}</span></span>
@@ -132,11 +180,20 @@ const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => 
                                 <div className="p-4 space-y-4">
                                     {cause.actions.length === 0 && <p className="text-sm text-slate-400 italic">No optimization actions defined.</p>}
                                     {cause.actions.map((action, idx) => (
-                                        <div key={action.id} className="grid grid-cols-12 gap-4 items-start text-sm border-b border-slate-100 last:border-0 pb-4 last:pb-0">
-                                            <div className="col-span-1 flex justify-center pt-2">
+                                        <div key={action.id} className="grid grid-cols-12 gap-4 items-start text-sm border-b border-slate-100 last:border-0 pb-4 last:pb-0 relative group">
+                                            {/* Action Index & Delete */}
+                                            <div className="col-span-1 flex flex-col items-center pt-2 gap-2">
                                                 <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">{idx + 1}</div>
+                                                <button 
+                                                    onClick={() => deleteAction(node.id, func.id, fail.id, cause.id, action.id)}
+                                                    className="text-slate-300 hover:text-red-500 p-1 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                                    title="Delete Action"
+                                                >
+                                                    <Trash2 size={14}/>
+                                                </button>
                                             </div>
                                             
+                                            {/* Left Column: Action Definition */}
                                             <div className="col-span-4 space-y-2">
                                                 <label className="block text-xs font-bold text-slate-500">Preventive/Detection Action</label>
                                                 <textarea 
@@ -160,6 +217,7 @@ const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => 
                                                 </div>
                                             </div>
 
+                                            {/* Middle Column: Evidence & Closure */}
                                             <div className="col-span-4 space-y-2">
                                                 <label className="block text-xs font-bold text-slate-500">Action Taken & Evidence</label>
                                                 <textarea 
@@ -186,6 +244,7 @@ const Step6_Optimization: React.FC<Props> = ({ structure, updateStructure }) => 
                                                 </div>
                                             </div>
 
+                                            {/* Right Column: Re-scoring */}
                                             <div className="col-span-3 bg-green-50 p-2 rounded border border-green-100">
                                                 <label className="block text-xs font-bold text-green-700 mb-1 text-center">Re-Rating</label>
                                                 <div className="flex justify-between mb-2 px-1">

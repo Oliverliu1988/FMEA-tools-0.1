@@ -10,12 +10,17 @@ interface Props {
   type: FmeaType;
 }
 
+/**
+ * Step 4: Failure Analysis
+ * Connects a Function to a "Failure Mode".
+ * Connects that Mode to "Effects" (Higher level impact) and "Causes" (Lower level root cause).
+ */
 const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) => {
   const [selectedFuncId, setSelectedFuncId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [analyzingRisk, setAnalyzingRisk] = useState<string | null>(null);
 
-  // Flatten functions for easier selection menu (simplified for UX)
+  // Helper: Flatten functions from the tree for a simple selection list
   const getAllFunctions = (nodes: StructureNode[]): { func: FmeaFunction, nodeName: string }[] => {
       let list: { func: FmeaFunction, nodeName: string }[] = [];
       nodes.forEach(node => {
@@ -24,11 +29,14 @@ const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) =>
       });
       return list;
   };
+
   const allFunctions = getAllFunctions(structure);
   const selectedFunctionObj = allFunctions.find(f => f.func.id === selectedFuncId);
 
+  // --- CRUD Operations ---
+
+  // Deep tree update to modify the failures array of a specific function
   const updateFunctionFailures = (funcId: string, failures: FmeaFailure[]) => {
-      // Deep update structure
       const updateRecursive = (nodes: StructureNode[]): StructureNode[] => {
           return nodes.map(n => {
               const updatedFuncs = n.functions.map(f => f.id === funcId ? { ...f, failures } : f);
@@ -51,13 +59,23 @@ const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) =>
       updateFunctionFailures(selectedFuncId, [...currentFailures, newFailure]);
   };
 
+  const deleteFailureMode = (failureId: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if(confirm("Delete this failure mode?")) {
+          if (!selectedFunctionObj) return;
+          const newF = selectedFunctionObj.func.failures.filter(f => f.id !== failureId);
+          updateFunctionFailures(selectedFunctionObj.func.id, newF);
+      }
+  };
+
   const updateFailure = (failureId: string, field: keyof FmeaFailure, value: any) => {
       if (!selectedFunctionObj) return;
       const updated = selectedFunctionObj.func.failures.map(f => f.id === failureId ? { ...f, [field]: value } : f);
       updateFunctionFailures(selectedFunctionObj.func.id, updated);
   };
 
-  // Sub-editor for Causes (which creates the chain)
+  // --- Causes Logic ---
   const addCause = (failure: FmeaFailure) => {
       const newCause = {
           id: crypto.randomUUID(),
@@ -74,6 +92,7 @@ const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) =>
       updateFailure(failure.id, 'failureCauses', [...failure.failureCauses, newCause]);
   };
 
+   // --- AI Logic ---
    const handleAISuggest = async () => {
       if (!selectedFunctionObj) return;
       setLoading(true);
@@ -95,17 +114,15 @@ const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) =>
       try {
           const result = await suggestRiskAnalysis(failure.failureMode, type);
           if (result) {
-              // Update Effect
+              // Add suggested effects and causes
               const updatedEffects = [...failure.failureEffects, result.effect];
-              
-              // Create a Cause with controls
               const newCause = {
                 id: crypto.randomUUID(),
                 failureId: failure.id,
                 description: result.cause || "Suggested Cause",
                 preventionControl: result.prevention || "",
                 detectionControl: result.detection || "",
-                severity: 0, // Manual step
+                severity: 0,
                 occurrence: 0,
                 detection: 0,
                 actionPriority: ActionPriority.LOW,
@@ -125,7 +142,7 @@ const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) =>
 
   return (
     <div className="flex h-[700px] bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        {/* Left List */}
+        {/* Left List: Functions Selector */}
         <div className="w-1/4 border-r border-slate-200 bg-slate-50 flex flex-col">
              <div className="p-4 border-b border-slate-200">
                 <h3 className="font-bold text-slate-700">Functions</h3>
@@ -147,7 +164,7 @@ const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) =>
              </div>
         </div>
 
-        {/* Right Editor */}
+        {/* Right Editor: Failure Modes */}
         <div className="w-3/4 flex flex-col p-6 bg-slate-50/50">
              {!selectedFunctionObj ? (
                  <div className="m-auto text-slate-400 flex flex-col items-center">
@@ -193,10 +210,12 @@ const Step4_Failure: React.FC<Props> = ({ structure, updateStructure, type }) =>
                                             {analyzingRisk === failure.id ? <Loader2 className="animate-spin" size={12}/> : <Sparkles size={12}/>}
                                             Auto-Fill Chain
                                          </button>
-                                         <button onClick={() => {
-                                             const newF = selectedFunctionObj.func.failures.filter(f => f.id !== failure.id);
-                                             updateFunctionFailures(selectedFunctionObj.func.id, newF);
-                                         }} className="text-slate-400 hover:text-red-500">
+                                         <button 
+                                            type="button"
+                                            onClick={(e) => deleteFailureMode(failure.id, e)} 
+                                            className="text-slate-400 hover:text-red-500"
+                                            title="Delete Failure Mode"
+                                        >
                                             <Trash2 size={16}/>
                                         </button>
                                     </div>

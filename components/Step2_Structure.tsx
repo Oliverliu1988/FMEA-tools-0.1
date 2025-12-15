@@ -10,14 +10,29 @@ interface Props {
   type: FmeaType;
 }
 
+/**
+ * Step 2: Structure Analysis
+ * Visualizes and manages the hierarchical tree of the system/process.
+ * 
+ * CORE LOGIC:
+ * - Uses recursive functions to Add, Delete, or Update nodes deep within the tree.
+ * - The `setData` prop updates the central state in App.tsx.
+ */
 const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ "root": true });
 
+  // --- UI Helpers ---
   const toggleExpand = (id: string) => {
     setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  // --- CRUD Operations ---
+
+  /**
+   * adds a new node. If parentId is null, adds to root.
+   * Otherwise, traverses tree to find parent.
+   */
   const addNode = (parentId: string | null) => {
     const newNode: StructureNode = {
       id: crypto.randomUUID(),
@@ -29,16 +44,15 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
     };
 
     if (!parentId) {
-      // Add to root
       setData([...data, newNode]);
     } else {
-      // Recursively find parent and add
       const updated = addNodeRecursive(data, parentId, newNode);
       setData(updated);
       setExpanded(prev => ({ ...prev, [parentId]: true }));
     }
   };
 
+  // Recursive helper to find parent and append child
   const addNodeRecursive = (nodes: StructureNode[], targetId: string, newNode: StructureNode): StructureNode[] => {
     return nodes.map(node => {
       if (node.id === targetId) {
@@ -51,10 +65,21 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
     });
   };
 
-  const deleteNode = (id: string) => {
+  /**
+   * Deletes a node and ALL its children/content.
+   * Uses filter() recursively to remove the target ID.
+   */
+  const deleteNode = (id: string, e: React.MouseEvent) => {
+    e.preventDefault(); // Stop form submission behavior
+    e.stopPropagation(); // Stop bubbling to parent click handlers
+    
     if (confirm("Are you sure? This will delete all children, functions, and failures associated with this item.")) {
        const deleteRecursive = (nodes: StructureNode[]): StructureNode[] => {
-           return nodes.filter(n => n.id !== id).map(n => ({
+           // If the current level contains the ID, filter it out.
+           // Then map over remaining nodes to recurse into their children.
+           return nodes
+             .filter(n => n.id !== id)
+             .map(n => ({
                ...n,
                children: deleteRecursive(n.children)
            }));
@@ -63,6 +88,7 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
     }
   };
 
+  // Update the name of a node
   const updateNodeName = (id: string, name: string) => {
       const updateRecursive = (nodes: StructureNode[]): StructureNode[] => {
           return nodes.map(n => {
@@ -73,6 +99,7 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
       setData(updateRecursive(data));
   };
 
+  // --- AI Logic ---
   const handleAISuggest = async () => {
       if (!scope) {
           alert("Please define the scope in Step 1 first.");
@@ -82,8 +109,8 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
       try {
           const suggestions = await suggestStructure(scope, type);
           if (suggestions && Array.isArray(suggestions)) {
-              // Add suggested items as children of the first root node if exists, else create root
               if (data.length === 0) {
+                  // If tree is empty, create a root based on scope
                   const root: StructureNode = {
                        id: crypto.randomUUID(),
                        parentId: null,
@@ -91,7 +118,7 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
                        type: 'system',
                        children: suggestions.map(s => ({
                            id: crypto.randomUUID(),
-                           parentId: null, // Will be fixed by context usually, but here simplified
+                           parentId: null,
                            name: s,
                            type: 'component',
                            children: [],
@@ -102,7 +129,7 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
                   setData([root]);
                   setExpanded({ [root.id]: true });
               } else {
-                  // Add to first root
+                  // If tree exists, append suggestions to the first root item
                   const rootId = data[0].id;
                   const newChildren = suggestions.map(s => ({
                     id: crypto.randomUUID(),
@@ -113,8 +140,7 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
                     functions: []
                   }));
                   
-                  const updated = addNodeRecursive(data, rootId, newChildren[0]); // Just adding one by one logic is messy here
-                  // Simplified: direct update
+                  // Optimistic update
                   const newRoot = { ...data[0], children: [...data[0].children, ...newChildren] };
                   setData([newRoot, ...data.slice(1)]);
               }
@@ -127,31 +153,54 @@ const Step2_Structure: React.FC<Props> = ({ data, setData, scope, type }) => {
       }
   };
 
+  // --- Render Recursive Tree ---
   const renderTree = (nodes: StructureNode[], depth = 0) => {
     return nodes.map(node => (
       <div key={node.id} className="ml-4 border-l border-slate-300 pl-4 my-2">
         <div className="flex items-center gap-2 group">
-            <button onClick={() => toggleExpand(node.id)} className="text-slate-500 hover:text-blue-600">
+            {/* Expand/Collapse Toggle */}
+            <button 
+                type="button"
+                onClick={(e) => { e.stopPropagation(); toggleExpand(node.id); }} 
+                className="text-slate-500 hover:text-blue-600 w-5 h-5 flex items-center justify-center"
+            >
                 {node.children.length > 0 ? (
                     expanded[node.id] ? <ChevronDown size={16}/> : <ChevronRight size={16}/>
                 ) : <span className="w-4 h-4 block"></span>}
             </button>
-            <div className={`flex-1 flex items-center gap-2 p-2 rounded hover:bg-slate-50 border ${depth === 0 ? 'border-blue-200 bg-blue-50' : 'border-transparent'}`}>
+
+            {/* Editable Node Row */}
+            <div className={`flex-1 flex items-center gap-2 p-2 rounded hover:bg-slate-50 border transition-colors ${depth === 0 ? 'border-blue-200 bg-blue-50' : 'border-transparent'}`}>
                 <input 
                     value={node.name}
                     onChange={(e) => updateNodeName(node.id, e.target.value)}
-                    className="bg-transparent border-none focus:ring-0 text-sm font-medium w-full"
+                    className="bg-transparent border-none focus:ring-0 text-sm font-medium w-full outline-none"
+                    placeholder="Item Name"
                 />
-                <div className="opacity-0 group-hover:opacity-100 flex gap-1">
-                    <button onClick={() => addNode(node.id)} title="Add Child" className="p-1 text-green-600 hover:bg-green-100 rounded">
+                
+                {/* Actions (Add Child / Delete) */}
+                <div className="opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+                    <button 
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); addNode(node.id); }} 
+                        title="Add Child" 
+                        className="p-1 text-green-600 hover:bg-green-100 rounded"
+                    >
                         <Plus size={14} />
                     </button>
-                    <button onClick={() => deleteNode(node.id)} title="Delete" className="p-1 text-red-600 hover:bg-red-100 rounded">
+                    <button 
+                        type="button"
+                        onClick={(e) => deleteNode(node.id, e)} 
+                        title="Delete Item" 
+                        className="p-1 text-red-600 hover:bg-red-100 rounded"
+                    >
                         <Trash2 size={14} />
                     </button>
                 </div>
             </div>
         </div>
+        
+        {/* Children Render */}
         {expanded[node.id] && node.children.length > 0 && (
             <div>
                 {renderTree(node.children, depth + 1)}

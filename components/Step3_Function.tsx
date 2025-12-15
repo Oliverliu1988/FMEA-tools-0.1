@@ -9,11 +9,20 @@ interface Props {
   type: FmeaType;
 }
 
+/**
+ * Step 3: Function Analysis
+ * Associates "Functions" and "Requirements" with specific nodes in the structure.
+ * 
+ * CORE LOGIC:
+ * - Selects a node ID (`selectedNodeId`).
+ * - Finds that node in the `structure` tree.
+ * - Modifies the `functions` array of that specific node using `updateNodeFunctions`.
+ */
 const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) => {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Helper to find node
+  // Helper to find node object from ID
   const findNode = (nodes: StructureNode[], id: string): StructureNode | null => {
     for (const node of nodes) {
       if (node.id === id) return node;
@@ -25,11 +34,17 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
 
   const selectedNode = selectedNodeId ? findNode(structure, selectedNodeId) : null;
 
+  // --- CRUD Operations ---
+
+  /**
+   * Updates the `functions` array for a specific node ID deep in the tree.
+   * Creates a shallow copy of the tree path to trigger React re-renders.
+   */
   const updateNodeFunctions = (nodeId: string, functions: FmeaFunction[]) => {
       const updateRecursive = (nodes: StructureNode[]): StructureNode[] => {
           return nodes.map(n => {
-              if (n.id === nodeId) return { ...n, functions };
-              return { ...n, children: updateRecursive(n.children) };
+              if (n.id === nodeId) return { ...n, functions }; // Update target
+              return { ...n, children: updateRecursive(n.children) }; // Traverse children
           });
       };
       updateStructure(updateRecursive(structure));
@@ -47,10 +62,20 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
     updateNodeFunctions(selectedNode.id, [...selectedNode.functions, newFunc]);
   };
 
-  const removeFunction = (funcId: string) => {
+  /**
+   * Deletes a function.
+   * CRITICAL: Uses e.preventDefault/stopPropagation to avoid UI glitches.
+   */
+  const removeFunction = (funcId: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
       if (!selectedNode) return;
-      const updated = selectedNode.functions.filter(f => f.id !== funcId);
-      updateNodeFunctions(selectedNode.id, updated);
+      
+      if (confirm("Delete this function and all associated failures?")) {
+          const updated = selectedNode.functions.filter(f => f.id !== funcId);
+          updateNodeFunctions(selectedNode.id, updated);
+      }
   };
 
   const updateFunctionField = (funcId: string, field: keyof FmeaFunction, value: string) => {
@@ -59,6 +84,7 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
     updateNodeFunctions(selectedNode.id, updated);
   };
 
+  // --- AI Logic ---
   const handleAISuggest = async () => {
       if (!selectedNode) return;
       setLoading(true);
@@ -80,13 +106,13 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
       }
   };
 
-  // Render tree purely for selection
+  // --- Render Helpers ---
   const renderSelectionTree = (nodes: StructureNode[], depth = 0) => {
       return nodes.map(node => (
           <div key={node.id} className="ml-2">
               <button 
                 onClick={() => setSelectedNodeId(node.id)}
-                className={`w-full text-left px-3 py-2 rounded text-sm mb-1 truncate
+                className={`w-full text-left px-3 py-2 rounded text-sm mb-1 truncate transition-colors
                     ${selectedNodeId === node.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'}
                 `}
                 style={{ marginLeft: `${depth * 10}px`}}
@@ -119,10 +145,10 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
                 </div>
                  {selectedNode && (
                     <div className="flex gap-2">
-                         <button onClick={addFunction} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-sm">
+                         <button onClick={addFunction} className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-sm transition-colors">
                              <Plus size={14}/> Add Function
                          </button>
-                         <button onClick={handleAISuggest} disabled={loading} className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm disabled:opacity-50">
+                         <button onClick={handleAISuggest} disabled={loading} className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-sm disabled:opacity-50 transition-colors">
                             {loading ? <Loader2 className="animate-spin" size={14}/> : <Sparkles size={14} />} AI Suggest
                          </button>
                     </div>
@@ -140,10 +166,15 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
                             <p className="text-center text-slate-400 py-8 italic">No functions defined yet.</p>
                         )}
                         {selectedNode.functions.map((func, idx) => (
-                            <div key={func.id} className="p-4 border border-slate-200 rounded-lg hover:shadow-sm transition-shadow bg-slate-50">
+                            <div key={func.id} className="p-4 border border-slate-200 rounded-lg hover:shadow-sm transition-shadow bg-slate-50 group">
                                 <div className="flex justify-between items-start mb-2">
                                     <span className="text-xs font-bold text-slate-400 uppercase">Function {idx + 1}</span>
-                                    <button onClick={() => removeFunction(func.id)} className="text-red-400 hover:text-red-600">
+                                    <button 
+                                        type="button"
+                                        onClick={(e) => removeFunction(func.id, e)} 
+                                        className="text-slate-300 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                                        title="Delete Function"
+                                    >
                                         <Trash2 size={16}/>
                                     </button>
                                 </div>
@@ -153,7 +184,7 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
                                         <textarea 
                                             value={func.description}
                                             onChange={(e) => updateFunctionField(func.id, 'description', e.target.value)}
-                                            className="w-full text-sm border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
+                                            className="w-full text-sm border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none bg-white"
                                             rows={2}
                                             placeholder="What does this item do?"
                                         />
@@ -163,7 +194,7 @@ const Step3_Function: React.FC<Props> = ({ structure, updateStructure, type }) =
                                         <input 
                                             value={func.requirements}
                                             onChange={(e) => updateFunctionField(func.id, 'requirements', e.target.value)}
-                                            className="w-full text-sm border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none"
+                                            className="w-full text-sm border border-slate-300 rounded p-2 focus:ring-1 focus:ring-blue-500 outline-none bg-white"
                                             placeholder="e.g., 12V +/- 0.5V, Max 50 degrees..."
                                         />
                                     </div>
